@@ -1,0 +1,15 @@
+# Backend
+backend/.env
+backend/venv/
+backend/__pycache__/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/README.md
+frontend/src/assets/react.svg
+frontend/src/assets/vite.svg
+
+# OS
+.DS_Store
