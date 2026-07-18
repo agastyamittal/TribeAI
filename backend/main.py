@@ -21,12 +21,37 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── In-memory state ──────────────────────────────────────────────────────────
+# ── Persistent state ─────────────────────────────────────────────────────────
+
+DATA_FILE = os.path.join(os.path.dirname(__file__), "data.json")
 
 experts: dict[str, dict] = {}
 sessions: dict[str, dict] = {}
 knowledge_entries: dict[str, dict] = {}
 validated_knowledge: list[dict] = []
+
+
+def save_state():
+    payload = {
+        "experts": experts,
+        "sessions": sessions,
+        "knowledge_entries": knowledge_entries,
+        "validated_knowledge": validated_knowledge,
+    }
+    with open(DATA_FILE, "w") as f:
+        json.dump(payload, f, indent=2)
+
+
+def load_state():
+    global experts, sessions, knowledge_entries, validated_knowledge
+    if not os.path.exists(DATA_FILE):
+        return
+    with open(DATA_FILE) as f:
+        data = json.load(f)
+    experts = data.get("experts", {})
+    sessions = data.get("sessions", {})
+    knowledge_entries = data.get("knowledge_entries", {})
+    validated_knowledge = data.get("validated_knowledge", [])
 
 ROLES = {
     "cnc_machinist": {"title": "CNC Machinist"},
@@ -48,11 +73,14 @@ def get_claude_client():
 
 # ── ChromaDB ────────────────────────────────────────────────────────────────
 
-chroma_client = chromadb.Client()
+CHROMA_DIR = os.path.join(os.path.dirname(__file__), "chroma_data")
+chroma_client = chromadb.PersistentClient(path=CHROMA_DIR)
 knowledge_collection = chroma_client.get_or_create_collection(
     name="tribe_knowledge",
     metadata={"hnsw:space": "cosine"},
 )
+
+load_state()
 
 # ── System prompts ──────────────────────────────────────────────────────────
 
@@ -70,9 +98,10 @@ Interview guidelines:
    - Techniques and workarounds
    - Safety practices beyond the manual
    - Quality checks and inspection tricks
-6. Keep your responses concise (2-4 paragraphs). Summarize what the expert just said to show you understood, then ask the next probing question.
+6. Keep your responses concise (couple of sentences). Summarize what the expert just said to show you understood, then ask the next probing question.
 7. After 5-7 exchanges, naturally wrap up the session by summarizing key insights and thanking the expert.
 8. Never make up technical details. Reflect back what the expert tells you.
+9. Never use markdown formatting in your responses. No asterisks, no bullet points, no numbered lists, no headers, no bold, no italics. Write in plain conversational English only.
 
 You are interviewing: {expert_name}, a {role_title} with {years_experience} years of experience.
 Interview trigger: {trigger}
@@ -152,6 +181,7 @@ def create_expert(data: ExpertCreate):
         "created_at": datetime.now().isoformat(),
     }
     experts[expert_id] = expert
+    save_state()
     return expert
 
 # ── Interview endpoints ──────────────────────────────────────────────────────
@@ -202,6 +232,7 @@ def start_interview(expert_id: str, trigger: str = "retirement", context: str = 
         "started_at": datetime.now().isoformat(),
     }
 
+    save_state()
     return {"session_id": session_id, "message": ai_text}
 
 @app.post("/api/interviews/message")
@@ -224,6 +255,7 @@ def send_interview_message(data: InterviewMessage):
 
     session["messages"].append({"role": "assistant", "content": ai_text})
 
+    save_state()
     return {"message": ai_text}
 
 @app.get("/api/interviews/{session_id}")
@@ -290,6 +322,7 @@ def extract_knowledge(session_id: str):
         created.append(knowledge)
 
     experts[session["expert_id"]]["sessions_completed"] += 1
+    save_state()
     return created
 
 # ── Validation endpoints ─────────────────────────────────────────────────────
@@ -336,6 +369,7 @@ def validate_entry(data: ValidationAction):
     else:
         entry["status"] = "rejected"
 
+    save_state()
     return entry
 
 # ── Digital Expert (RAG) ─────────────────────────────────────────────────────

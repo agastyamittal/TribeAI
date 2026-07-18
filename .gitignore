@@ -2,6 +2,8 @@
 backend/.env
 backend/venv/
 backend/__pycache__/
+backend/data.json
+backend/chroma_data/
 
 # Frontend
 frontend/node_modules/
