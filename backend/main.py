@@ -136,7 +136,9 @@ Rules:
 4. Be specific and actionable. Include exact numbers, sequences, and techniques from the knowledge base.
 5. Start your answer with "Based on validated knowledge from our experts:" when you have relevant entries.
 6. If multiple entries are relevant, synthesize them into a coherent answer.
-7. Keep answers concise but complete, around 1 to 3 paragraphs."""
+7. Keep answers concise but complete, around 1 to 3 paragraphs.
+8. Never use markdown formatting in your responses. No asterisks, no bullet points, no numbered lists, no headers, no bold, no italics. Write in plain
+  conversational English only."""
 
 # ── Pydantic models ──────────────────────────────────────────────────────────
 

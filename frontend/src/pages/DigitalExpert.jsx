@@ -1,20 +1,34 @@
 import { useState, useRef, useEffect } from 'react'
-import { Search, Send, Loader2, User, Bot, BookOpen, Mic } from 'lucide-react'
+import { Search, Send, Loader2, User, Bot, BookOpen, Mic, MicOff, AudioLines } from 'lucide-react'
+import { useVoice } from '../hooks/useVoice'
 
 export default function DigitalExpert() {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const chatEndRef = useRef(null)
+  const voice = useVoice()
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  async function handleSubmit(e) {
-    e.preventDefault()
-    if (!input.trim() || loading) return
-    const question = input.trim()
+  function toggleRecording() {
+    if (voice.isRecording) {
+      const text = voice.stopRecording()
+      if (text) handleSubmit(null, text)
+    } else {
+      setInput('')
+      voice.startRecording((utteranceText) => {
+        handleSubmit(null, utteranceText)
+      })
+    }
+  }
+
+  async function handleSubmit(e, overrideText = null) {
+    if (e) e.preventDefault()
+    const question = (overrideText || input).trim()
+    if (!question || loading) return
     setInput('')
     setMessages(prev => [...prev, { role: 'user', content: question }])
     setLoading(true)
@@ -126,24 +140,47 @@ export default function DigitalExpert() {
         <div ref={chatEndRef} />
       </div>
 
-      <form onSubmit={handleSubmit} className="flex gap-3 pt-4 border-t border-slate-800">
+      {voice.isRecording && (
+        <div className="bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-2 mb-2">
+          <div className="flex items-center gap-3">
+            <AudioLines size={16} className="text-red-400 animate-pulse" />
+            <span className="text-red-400 text-sm font-medium">Listening...</span>
+            <span className="text-red-400/60 text-xs ml-auto">tap mic to finish</span>
+          </div>
+          {voice.transcript && (
+            <p className="text-slate-300 text-sm leading-relaxed mt-1">{voice.transcript}</p>
+          )}
+        </div>
+      )}
+
+      <form onSubmit={(e) => handleSubmit(e)} className="flex gap-3 pt-4 border-t border-slate-800">
         <input
           type="text"
-          value={input}
+          value={voice.isRecording ? voice.transcript : input}
           onChange={e => setInput(e.target.value)}
           placeholder="Ask a question..."
           className="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
-          disabled={loading}
+          disabled={loading || voice.isRecording}
+          readOnly={voice.isRecording}
         />
-        <button
-          type="button"
-          className="bg-amber-500 hover:bg-amber-400 text-slate-900 p-3 rounded-xl transition-colors cursor-pointer"
-        >
-          <Mic size={20} />
-        </button>
+        {voice.supported && (
+          <button
+            type="button"
+            onClick={toggleRecording}
+            disabled={loading}
+            className={`p-3 rounded-xl transition-all cursor-pointer ${
+              voice.isRecording
+                ? 'bg-red-500 hover:bg-red-400 text-white animate-pulse-ring'
+                : 'bg-amber-500 hover:bg-amber-400 text-slate-900'
+            }`}
+            title={voice.isRecording ? 'Stop recording' : 'Start recording'}
+          >
+            {voice.isRecording ? <MicOff size={20} /> : <Mic size={20} />}
+          </button>
+        )}
         <button
           type="submit"
-          disabled={loading || !input.trim()}
+          disabled={loading || !input.trim() || voice.isRecording}
           className="bg-amber-500 hover:bg-amber-400 text-slate-900 p-3 rounded-xl transition-colors disabled:opacity-30 cursor-pointer"
         >
           <Send size={20} />
