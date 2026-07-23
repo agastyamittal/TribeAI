@@ -128,12 +128,16 @@ export default function Interview() {
     setExtracting(true)
     try {
       const res = await fetch(`/api/extract/${sessionId}`, { method: 'POST' })
+      const data = await res.json()
       if (!res.ok) {
-        const data = await res.json()
         alert(data.detail || 'Failed to extract knowledge')
         return
       }
-      navigate('/validation')
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `Knowledge extraction complete. ${data.length} entries extracted and ready for validation.`,
+      }])
+      setTimeout(() => navigate('/validation'), 2000)
     } catch {
       alert('Failed to connect to server')
     } finally {
