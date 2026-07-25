@@ -36,6 +36,13 @@ export default function Validation() {
     setEntries(prev => prev.map(e => e.id === entryId ? updated : e))
   }
 
+  async function validateAll() {
+    const pendingEntries = entries.filter(e => e.status === 'pending')
+    for (const entry of pendingEntries) {
+      await handleValidation(entry.id, true)
+    }
+  }
+
   const pending = entries.filter(e => e.status === 'pending')
   const validated = entries.filter(e => e.status === 'validated')
   const rejected = entries.filter(e => e.status === 'rejected')
@@ -61,7 +68,7 @@ export default function Validation() {
         <p className="text-slate-400">Review and validate extracted knowledge before it goes live</p>
       </div>
 
-      <div className="flex gap-3 mb-6">
+      <div className="flex items-center gap-3 mb-6">
         <span className="px-3 py-1 rounded-full text-sm bg-amber-500/20 text-amber-400">
           {pending.length} Pending
         </span>
@@ -71,6 +78,14 @@ export default function Validation() {
         <span className="px-3 py-1 rounded-full text-sm bg-red-500/20 text-red-400">
           {rejected.length} Rejected
         </span>
+        {pending.length > 0 && (
+          <button
+            onClick={validateAll}
+            className="ml-auto flex items-center gap-1 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-1.5 rounded-lg text-sm font-medium transition-colors cursor-pointer"
+          >
+            <CheckCircle size={16} /> Validate All ({pending.length})
+          </button>
+        )}
       </div>
 
       <div className="space-y-4">
