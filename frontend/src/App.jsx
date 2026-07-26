@@ -1,8 +1,9 @@
 import { BrowserRouter, Routes, Route, Link, useLocation } from 'react-router-dom'
-import { Brain, MessageSquare, CheckCircle, Search } from 'lucide-react'
+import { Brain, MessageSquare, CheckCircle, Search, BookOpen } from 'lucide-react'
 import Dashboard from './pages/Dashboard'
 import Interview from './pages/Interview'
 import Validation from './pages/Validation'
+import KnowledgeBase from './pages/KnowledgeBase'
 import DigitalExpert from './pages/DigitalExpert'
 
 function NavLink({ to, icon: Icon, children }) {
@@ -38,6 +39,7 @@ function Layout({ children }) {
             <NavLink to="/" icon={Brain}>Dashboard</NavLink>
             <NavLink to="/interview" icon={MessageSquare}>Interview</NavLink>
             <NavLink to="/validation" icon={CheckCircle}>Validation</NavLink>
+            <NavLink to="/knowledge" icon={BookOpen}>Knowledge Base</NavLink>
             <NavLink to="/expert" icon={Search}>Digital Expert</NavLink>
           </nav>
         </div>
@@ -57,6 +59,7 @@ export default function App() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/interview" element={<Interview />} />
           <Route path="/validation" element={<Validation />} />
+          <Route path="/knowledge" element={<KnowledgeBase />} />
           <Route path="/expert" element={<DigitalExpert />} />
         </Routes>
       </Layout>
