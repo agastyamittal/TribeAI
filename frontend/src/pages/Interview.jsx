@@ -14,6 +14,9 @@ export default function Interview() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const expertId = searchParams.get('expert')
+  const triggerParam = searchParams.get('trigger')
+  const contextParam = searchParams.get('context')
+  const gapIdParam = searchParams.get('gap_id')
 
   const [expert, setExpert] = useState(null)
   const [sessionId, setSessionId] = useState(null)
@@ -24,8 +27,8 @@ export default function Interview() {
   const [extracting, setExtracting] = useState(false)
   const [autoSpeak, setAutoSpeak] = useState(true)
   const [showSetup, setShowSetup] = useState(false)
-  const [trigger, setTrigger] = useState('retirement')
-  const [context, setContext] = useState('')
+  const [trigger, setTrigger] = useState(triggerParam || 'retirement')
+  const [context, setContext] = useState(contextParam || '')
   const chatEndRef = useRef(null)
   const sessionIdRef = useRef(null)
   const textareaRef = useRef(null)
@@ -39,6 +42,9 @@ export default function Interview() {
       fetch('/api/experts').then(r => r.json()).then(list => {
         setExpert(list.find(e => e.id === expertId))
       })
+    }
+    if (triggerParam) {
+      setShowSetup(true)
     }
   }, [expertId])
 
@@ -62,6 +68,7 @@ export default function Interview() {
     try {
       const params = new URLSearchParams({ expert_id: expertId, trigger })
       if (context.trim()) params.set('context', context.trim())
+      if (gapIdParam) params.set('gap_id', gapIdParam)
       const res = await fetch(`/api/interviews/start?${params}`, { method: 'POST' })
       const data = await res.json()
       if (!res.ok) {

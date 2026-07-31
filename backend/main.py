@@ -29,6 +29,7 @@ experts: dict[str, dict] = {}
 sessions: dict[str, dict] = {}
 knowledge_entries: dict[str, dict] = {}
 validated_knowledge: list[dict] = []
+gaps: dict[str, dict] = {}
 
 
 def save_state():
@@ -37,13 +38,14 @@ def save_state():
         "sessions": sessions,
         "knowledge_entries": knowledge_entries,
         "validated_knowledge": validated_knowledge,
+        "gaps": gaps,
     }
     with open(DATA_FILE, "w") as f:
         json.dump(payload, f, indent=2)
 
 
 def load_state():
-    global experts, sessions, knowledge_entries, validated_knowledge
+    global experts, sessions, knowledge_entries, validated_knowledge, gaps
     if not os.path.exists(DATA_FILE):
         return
     with open(DATA_FILE) as f:
@@ -52,6 +54,7 @@ def load_state():
     sessions = data.get("sessions", {})
     knowledge_entries = data.get("knowledge_entries", {})
     validated_knowledge = data.get("validated_knowledge", [])
+    gaps = data.get("gaps", {})
 
 ROLES = {
     "cnc_machinist": {"title": "CNC Machinist"},
@@ -127,6 +130,25 @@ Rules:
 
 Return a JSON array of objects. Return ONLY the JSON array, no other text."""
 
+GAP_ANALYSIS_PROMPT = """You are a knowledge gap analyst for TribeAI, a manufacturing knowledge management system. Analyze the coverage report below and identify critical knowledge gaps that should be addressed through targeted expert interviews.
+
+For each gap, output a JSON object with:
+- "area": short label for the gap (e.g. "CNC Lathe - Safety Practices")
+- "machine": the machine or area affected
+- "missing_type": the knowledge type that is missing or thin (one of: machine_quirk, material_behavior, troubleshooting, technique, safety, quality_check)
+- "severity": "high" if safety related or zero coverage on a critical area, "medium" if thin coverage, "low" if nice to have
+- "description": 1 to 2 sentence explanation of why this gap matters and what knowledge is missing
+- "suggested_questions": array of 2 to 3 specific interview questions that would help fill this gap
+
+Rules:
+1. Prioritize safety and troubleshooting gaps as high severity.
+2. Only flag gaps that are actionable, where a targeted interview could realistically fill the hole.
+3. Return 2 to 5 gaps maximum, ordered by severity (high first).
+4. Be specific to the machines and processes mentioned in the existing knowledge.
+5. Do not flag gaps for knowledge types that do not make sense for a given machine.
+
+Return a JSON array of objects. Return ONLY the JSON array, no other text."""
+
 DIGITAL_EXPERT_SYSTEM_PROMPT = """You are the TribeAI Digital Expert, an AI assistant that answers manufacturing questions using a knowledge base of validated expertise from experienced professionals.
 
 Rules:
@@ -189,7 +211,7 @@ def create_expert(data: ExpertCreate):
 # ── Interview endpoints ──────────────────────────────────────────────────────
 
 @app.post("/api/interviews/start")
-def start_interview(expert_id: str, trigger: str = "retirement", context: str = ""):
+def start_interview(expert_id: str, trigger: str = "retirement", context: str = "", gap_id: str = ""):
     if expert_id not in experts:
         raise HTTPException(404, "Expert not found")
 
@@ -226,6 +248,7 @@ def start_interview(expert_id: str, trigger: str = "retirement", context: str = 
         "expert_id": expert_id,
         "trigger": trigger,
         "context": context,
+        "gap_id": gap_id or None,
         "system_prompt": system_prompt,
         "messages": [
             {"role": "user", "content": opening_user_msg},
@@ -233,6 +256,10 @@ def start_interview(expert_id: str, trigger: str = "retirement", context: str = 
         ],
         "started_at": datetime.now().isoformat(),
     }
+
+    if gap_id and gap_id in gaps:
+        gaps[gap_id]["status"] = "in_progress"
+        gaps[gap_id]["session_id"] = session_id
 
     save_state()
     return {"session_id": session_id, "message": ai_text}
@@ -324,6 +351,10 @@ def extract_knowledge(session_id: str):
         created.append(knowledge)
 
     experts[session["expert_id"]]["sessions_completed"] += 1
+
+    if session.get("gap_id") and session["gap_id"] in gaps:
+        gaps[session["gap_id"]]["status"] = "resolved"
+
     save_state()
     return created
 
@@ -425,6 +456,116 @@ def ask_digital_expert(data: DigitalExpertQuery):
         "answer": response.content[0].text,
         "sources": sources[:3],
     }
+
+# ── Gap detection ───────────────────────────────────────────────────────────
+
+@app.get("/api/gaps")
+def list_gaps():
+    return list(gaps.values())
+
+
+@app.post("/api/gaps/analyze")
+def analyze_gaps():
+    validated = [e for e in knowledge_entries.values() if e["status"] == "validated"]
+
+    if len(validated) < 5:
+        return {
+            "gaps": [],
+            "message": f"Need at least 5 validated entries for gap analysis. Currently have {len(validated)}.",
+        }
+
+    machines = set()
+    types_seen = set()
+    coverage: dict[tuple, int] = {}
+    confidence_counts: dict[str, dict] = {}
+
+    for entry in validated:
+        m, t = entry["machine"], entry["type"]
+        machines.add(m)
+        types_seen.add(t)
+        coverage[(m, t)] = coverage.get((m, t), 0) + 1
+        if m not in confidence_counts:
+            confidence_counts[m] = {"high": 0, "medium": 0, "low": 0}
+        confidence_counts[m][entry.get("confidence", "medium")] += 1
+
+    all_types = [
+        "machine_quirk", "material_behavior", "troubleshooting",
+        "technique", "safety", "quality_check",
+    ]
+
+    report_lines = [
+        "COVERAGE MATRIX:",
+        f"Machines: {', '.join(sorted(machines))}",
+        f"Total validated entries: {len(validated)}",
+        "",
+    ]
+    for m in sorted(machines):
+        report_lines.append(f"Machine: {m}")
+        for t in all_types:
+            count = coverage.get((m, t), 0)
+            report_lines.append(f"  {t}: {count} entries")
+        conf = confidence_counts.get(m, {})
+        report_lines.append(
+            f"  Confidence: {conf.get('high', 0)} high, "
+            f"{conf.get('medium', 0)} medium, {conf.get('low', 0)} low"
+        )
+        report_lines.append("")
+
+    uncaptured = [e for e in experts.values() if e["sessions_completed"] == 0]
+    if uncaptured:
+        report_lines.append("UNCAPTURED EXPERTS (enrolled but no interviews):")
+        for e in uncaptured:
+            report_lines.append(
+                f"  {e['name']} — {e['role_title']}, {e['years_experience']} years experience"
+            )
+
+    report = "\n".join(report_lines)
+
+    client = get_claude_client()
+    response = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=2048,
+        system=GAP_ANALYSIS_PROMPT,
+        messages=[{"role": "user", "content": report}],
+    )
+
+    raw_text = response.content[0].text.strip()
+    if raw_text.startswith("```"):
+        raw_text = raw_text.split("\n", 1)[1] if "\n" in raw_text else raw_text[3:]
+        if raw_text.endswith("```"):
+            raw_text = raw_text[:-3]
+        raw_text = raw_text.strip()
+
+    try:
+        gap_items = json.loads(raw_text)
+    except json.JSONDecodeError:
+        raise HTTPException(500, "Failed to parse gap analysis. Please try again.")
+
+    old_active = {gid: g for gid, g in gaps.items() if g["status"] != "detected"}
+    gaps.clear()
+    gaps.update(old_active)
+
+    created = []
+    for item in gap_items:
+        gap_id = str(uuid.uuid4())[:8]
+        gap = {
+            "id": gap_id,
+            "area": item.get("area", "Unknown"),
+            "machine": item.get("machine", "Unknown"),
+            "missing_type": item.get("missing_type", "technique"),
+            "severity": item.get("severity", "medium"),
+            "description": item.get("description", ""),
+            "suggested_questions": item.get("suggested_questions", []),
+            "status": "detected",
+            "created_at": datetime.now().isoformat(),
+            "session_id": None,
+        }
+        gaps[gap_id] = gap
+        created.append(gap)
+
+    save_state()
+    return {"gaps": created}
+
 
 # ── Deepgram key endpoint ────────────────────────────────────────────────────
 

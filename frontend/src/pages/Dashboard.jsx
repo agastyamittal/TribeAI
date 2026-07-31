@@ -1,6 +1,21 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { UserPlus, Clock, BookOpen, ChevronRight } from 'lucide-react'
+import { UserPlus, Clock, BookOpen, ChevronRight, Zap, AlertTriangle, Loader2, Shield, Wrench, Cpu, Gauge, Eye, Search } from 'lucide-react'
+
+const SEVERITY_STYLE = {
+  high: 'bg-red-500/20 text-red-400 border-red-500/30',
+  medium: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
+  low: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
+}
+
+const GAP_TYPE_ICON = {
+  troubleshooting: Wrench,
+  safety: Shield,
+  machine_quirk: Cpu,
+  material_behavior: Gauge,
+  quality_check: Eye,
+  technique: Zap,
+}
 
 const ROLES = [
   { value: 'cnc_machinist', label: 'CNC Machinist' },
@@ -13,11 +28,55 @@ export default function Dashboard() {
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ name: 'John Doe', role: 'cnc_machinist', years_experience: 20, retirement_date: '2026-12-01' })
   const [loading, setLoading] = useState(false)
+  const [gaps, setGaps] = useState([])
+  const [analyzing, setAnalyzing] = useState(false)
+  const [gapError, setGapError] = useState('')
   const navigate = useNavigate()
 
   useEffect(() => {
     fetch('/api/experts').then(r => r.json()).then(setExperts)
+    fetch('/api/gaps').then(r => r.json()).then(setGaps)
   }, [])
+
+  async function analyzeGaps() {
+    setAnalyzing(true)
+    setGapError('')
+    try {
+      const res = await fetch('/api/gaps/analyze', { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) {
+        setGapError(data.detail || 'Failed to analyze gaps')
+        return
+      }
+      if (data.message) {
+        setGapError(data.message)
+        setGaps([])
+        return
+      }
+      setGaps(data.gaps)
+    } catch {
+      setGapError('Failed to connect to server')
+    } finally {
+      setAnalyzing(false)
+    }
+  }
+
+  function startGapInterview(gap, expertId) {
+    const contextParts = [
+      `Knowledge gap: ${gap.area}`,
+      gap.description,
+      '',
+      'Suggested areas to explore:',
+      ...gap.suggested_questions.map(q => `- ${q}`),
+    ]
+    const params = new URLSearchParams({
+      expert: expertId,
+      trigger: 'gap',
+      context: contextParts.join('\n'),
+      gap_id: gap.id,
+    })
+    navigate(`/interview?${params}`)
+  }
 
   async function addExpert(e) {
     e.preventDefault()
@@ -153,6 +212,129 @@ export default function Dashboard() {
           ))}
         </div>
       )}
+
+      <div className="mt-12">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h2 className="text-2xl font-bold text-white flex items-center gap-2">
+              <AlertTriangle size={22} className="text-amber-400" />
+              Knowledge Gaps
+            </h2>
+            <p className="text-slate-400 text-sm mt-1">Identify missing expertise areas and launch targeted interviews</p>
+          </div>
+          <button
+            onClick={analyzeGaps}
+            disabled={analyzing}
+            className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white font-semibold px-5 py-2.5 rounded-lg transition-colors disabled:opacity-50 cursor-pointer"
+          >
+            {analyzing ? (
+              <><Loader2 size={18} className="animate-spin" /> Analyzing...</>
+            ) : (
+              <><Search size={18} /> Analyze Gaps</>
+            )}
+          </button>
+        </div>
+
+        {gapError && (
+          <div className="bg-amber-500/10 border border-amber-500/30 text-amber-300 text-sm px-4 py-3 rounded-lg mb-4">
+            {gapError}
+          </div>
+        )}
+
+        {gaps.length === 0 && !gapError && !analyzing && (
+          <div className="text-center py-12 text-slate-500 border border-slate-800 rounded-xl">
+            <AlertTriangle size={36} className="mx-auto mb-3 opacity-40" />
+            <p>No gaps detected yet</p>
+            <p className="text-sm mt-1">Click "Analyze Gaps" to scan your knowledge base for coverage holes</p>
+          </div>
+        )}
+
+        {gaps.length > 0 && (
+          <div className="grid gap-4">
+            {gaps.map(gap => {
+              const Icon = GAP_TYPE_ICON[gap.missing_type] || Zap
+              const sevStyle = SEVERITY_STYLE[gap.severity] || SEVERITY_STYLE.medium
+              return (
+                <div
+                  key={gap.id}
+                  className={`bg-slate-800/50 border rounded-xl p-5 transition-colors ${
+                    gap.status === 'resolved'
+                      ? 'border-emerald-500/30 opacity-60'
+                      : gap.status === 'in_progress'
+                      ? 'border-amber-500/30'
+                      : 'border-slate-700/50 hover:border-slate-600'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3 mb-2">
+                        <Icon size={18} className="text-slate-400" />
+                        <h3 className="text-white font-semibold">{gap.area}</h3>
+                        <span className={`text-xs px-2 py-0.5 rounded-full border ${sevStyle}`}>
+                          {gap.severity}
+                        </span>
+                        {gap.status === 'in_progress' && (
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400">
+                            interview in progress
+                          </span>
+                        )}
+                        {gap.status === 'resolved' && (
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400">
+                            resolved
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-slate-300 text-sm mb-3">{gap.description}</p>
+                      <div className="space-y-1">
+                        <span className="text-xs text-slate-500 font-medium">Suggested questions:</span>
+                        {gap.suggested_questions.map((q, i) => (
+                          <p key={i} className="text-xs text-slate-400 pl-3">• {q}</p>
+                        ))}
+                      </div>
+                    </div>
+
+                    {gap.status === 'detected' && experts.length > 0 && (
+                      <div className="flex-shrink-0">
+                        {experts.length === 1 ? (
+                          <button
+                            onClick={() => startGapInterview(gap, experts[0].id)}
+                            className="flex items-center gap-1 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 px-4 py-2 rounded-lg text-sm font-medium transition-colors cursor-pointer whitespace-nowrap"
+                          >
+                            Start Interview <ChevronRight size={16} />
+                          </button>
+                        ) : (
+                          <div className="flex flex-col gap-2 items-end">
+                            <select
+                              id={`expert-${gap.id}`}
+                              defaultValue=""
+                              className="bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-300 focus:outline-none focus:border-amber-500"
+                            >
+                              <option value="" disabled>Pick expert</option>
+                              {experts.map(e => (
+                                <option key={e.id} value={e.id}>{e.name}</option>
+                              ))}
+                            </select>
+                            <button
+                              onClick={() => {
+                                const sel = document.getElementById(`expert-${gap.id}`)
+                                if (!sel.value) { alert('Select an expert first'); return }
+                                startGapInterview(gap, sel.value)
+                              }}
+                              className="flex items-center gap-1 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 px-4 py-2 rounded-lg text-sm font-medium transition-colors cursor-pointer whitespace-nowrap"
+                            >
+                              Start Interview <ChevronRight size={16} />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
