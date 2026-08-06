@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
-import { Send, Loader2, ArrowRight, Mic, MicOff, Volume2, VolumeOff, AudioLines, AlertTriangle, BookOpen, Target, Zap } from 'lucide-react'
+import { Send, Loader2, ArrowRight, Mic, MicOff, Volume2, VolumeOff, AudioLines, AlertTriangle, BookOpen, Target, Zap, Globe } from 'lucide-react'
 import { useVoice } from '../hooks/useVoice'
 
 const TRIGGERS = [
@@ -10,6 +10,12 @@ const TRIGGERS = [
   { value: 'gap', label: 'Knowledge Gap (System Detected)', icon: Zap, description: 'Address questions junior workers keep asking that the system can\'t answer well.' },
 ]
 
+const LANGUAGES = [
+  { code: 'en', name: 'English' },
+  { code: 'hi', name: 'Hindi (हिन्दी)' },
+  { code: 'es', name: 'Spanish (Español)' },
+]
+
 export default function Interview() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
@@ -17,6 +23,7 @@ export default function Interview() {
   const triggerParam = searchParams.get('trigger')
   const contextParam = searchParams.get('context')
   const gapIdParam = searchParams.get('gap_id')
+  const languageParam = searchParams.get('language')
 
   const [expert, setExpert] = useState(null)
   const [sessionId, setSessionId] = useState(null)
@@ -29,6 +36,7 @@ export default function Interview() {
   const [showSetup, setShowSetup] = useState(false)
   const [trigger, setTrigger] = useState(triggerParam || 'retirement')
   const [context, setContext] = useState(contextParam || '')
+  const [language, setLanguage] = useState(languageParam || 'en')
   const chatEndRef = useRef(null)
   const sessionIdRef = useRef(null)
   const textareaRef = useRef(null)
@@ -66,7 +74,7 @@ export default function Interview() {
   async function startInterview() {
     setStarting(true)
     try {
-      const params = new URLSearchParams({ expert_id: expertId, trigger })
+      const params = new URLSearchParams({ expert_id: expertId, trigger, language })
       if (context.trim()) params.set('context', context.trim())
       if (gapIdParam) params.set('gap_id', gapIdParam)
       const res = await fetch(`/api/interviews/start?${params}`, { method: 'POST' })
@@ -78,7 +86,7 @@ export default function Interview() {
       setSessionId(data.session_id)
       setMessages([{ role: 'assistant', content: data.message }])
       setShowSetup(false)
-      if (autoSpeak && voice.ttsSupported) {
+      if (autoSpeak && voice.ttsSupported && language === 'en') {
         voice.speak(data.message)
       }
     } catch (err) {
@@ -108,7 +116,7 @@ export default function Interview() {
         return
       }
       setMessages(prev => [...prev, { role: 'assistant', content: data.message }])
-      if (autoSpeak && voice.ttsSupported) {
+      if (autoSpeak && voice.ttsSupported && language === 'en') {
         voice.speak(data.message)
       }
     } catch {
@@ -127,7 +135,7 @@ export default function Interview() {
       setInput('')
       voice.startRecording((utteranceText) => {
         sendMessage(null, utteranceText)
-      })
+      }, language)
     }
   }
 
@@ -237,6 +245,25 @@ export default function Interview() {
                   )
                 })}
               </div>
+            </div>
+            <div>
+              <label className="block text-sm text-slate-400 mb-1 flex items-center gap-1">
+                <Globe size={14} /> Interview Language
+              </label>
+              <select
+                value={language}
+                onChange={e => setLanguage(e.target.value)}
+                className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-amber-500"
+              >
+                {LANGUAGES.map(l => (
+                  <option key={l.code} value={l.code}>{l.name}</option>
+                ))}
+              </select>
+              {language !== 'en' && (
+                <p className="text-xs text-slate-500 mt-1">
+                  The interview will be conducted in {LANGUAGES.find(l => l.code === language)?.name}. Extracted knowledge will be stored in English.
+                </p>
+              )}
             </div>
             <div>
               <label className="block text-sm text-slate-400 mb-1">

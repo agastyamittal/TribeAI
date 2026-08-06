@@ -6,6 +6,7 @@ from typing import Optional
 
 import anthropic
 import chromadb
+from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -62,6 +63,12 @@ ROLES = {
     "quality_inspector": {"title": "Quality Inspector"},
 }
 
+SUPPORTED_LANGUAGES = {
+    "en": "English",
+    "hi": "Hindi",
+    "es": "Spanish",
+}
+
 # ── API clients ─────────────────────────────────────────────────────────────
 
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
@@ -78,9 +85,13 @@ def get_claude_client():
 
 CHROMA_DIR = os.path.join(os.path.dirname(__file__), "chroma_data")
 chroma_client = chromadb.PersistentClient(path=CHROMA_DIR)
+embedding_fn = SentenceTransformerEmbeddingFunction(
+    model_name="paraphrase-multilingual-MiniLM-L12-v2"
+)
 knowledge_collection = chroma_client.get_or_create_collection(
     name="tribe_knowledge",
     metadata={"hnsw:space": "cosine"},
+    embedding_function=embedding_fn,
 )
 
 load_state()
@@ -108,7 +119,8 @@ Interview guidelines:
 
 You are interviewing: {expert_name}, a {role_title} with {years_experience} years of experience.
 Interview trigger: {trigger}
-{context_line}"""
+{context_line}
+{language_instruction}"""
 
 EXTRACTION_SYSTEM_PROMPT = """You are a knowledge extraction engine for TribeAI, a manufacturing knowledge management system. Analyze the interview transcript and extract discrete, actionable knowledge entries.
 
@@ -127,6 +139,7 @@ Rules:
 3. Preserve the expert's specific numbers, measurements, and named products exactly as stated.
 4. If the expert described a sequence (check A, then B, then C), preserve the order.
 5. Do not invent information. Only extract what was explicitly stated in the transcript.
+6. If the interview transcript is in a non-English language, translate all extracted content to English. The output JSON must always be in English regardless of the interview language. Preserve technical terms, machine names, part numbers, and specific measurements exactly as the expert stated them.
 
 Return a JSON array of objects. Return ONLY the JSON array, no other text."""
 
@@ -211,20 +224,28 @@ def create_expert(data: ExpertCreate):
 # ── Interview endpoints ──────────────────────────────────────────────────────
 
 @app.post("/api/interviews/start")
-def start_interview(expert_id: str, trigger: str = "retirement", context: str = "", gap_id: str = ""):
+def start_interview(expert_id: str, trigger: str = "retirement", context: str = "", gap_id: str = "", language: str = "en"):
     if expert_id not in experts:
         raise HTTPException(404, "Expert not found")
+    if language not in SUPPORTED_LANGUAGES:
+        raise HTTPException(400, f"Unsupported language. Choose from: {list(SUPPORTED_LANGUAGES.keys())}")
 
     client = get_claude_client()
     expert = experts[expert_id]
 
     context_line = f"Additional context: {context}" if context.strip() else ""
+    lang_name = SUPPORTED_LANGUAGES[language]
+    if language == "en":
+        language_instruction = ""
+    else:
+        language_instruction = f"IMPORTANT: Conduct this entire interview in {lang_name}. The expert will speak in {lang_name} (possibly mixed with English technical terms). Respond in {lang_name}. Use the script and vocabulary natural to {lang_name} speakers in manufacturing settings. Technical terms like machine names, part numbers, and measurements can remain in English."
     system_prompt = INTERVIEW_SYSTEM_PROMPT.format(
         expert_name=expert["name"],
         role_title=expert["role_title"],
         years_experience=expert["years_experience"],
         trigger=trigger,
         context_line=context_line,
+        language_instruction=language_instruction,
     )
 
     opening_user_msg = {
@@ -248,6 +269,7 @@ def start_interview(expert_id: str, trigger: str = "retirement", context: str = 
         "expert_id": expert_id,
         "trigger": trigger,
         "context": context,
+        "language": language,
         "gap_id": gap_id or None,
         "system_prompt": system_prompt,
         "messages": [
@@ -566,6 +588,29 @@ def analyze_gaps():
     save_state()
     return {"gaps": created}
 
+
+# ── Admin endpoints ─────────────────────────────────────────────────────────
+
+@app.post("/api/admin/reembed")
+def reembed_all():
+    count = 0
+    for entry in validated_knowledge:
+        embed_text = f"{entry['type']}: {entry['machine']}. Symptom: {entry['symptom']}. Diagnosis: {entry['diagnosis']}. Solution: {entry['solution']}"
+        keywords = entry.get("_keywords", [])
+        if keywords:
+            embed_text += f". Keywords: {', '.join(keywords)}"
+        knowledge_collection.upsert(
+            ids=[entry["id"]],
+            documents=[embed_text],
+            metadatas=[{
+                "expert_name": entry["expert_name"],
+                "type": entry["type"],
+                "machine": entry["machine"],
+                "confidence": entry["confidence"],
+            }],
+        )
+        count += 1
+    return {"reembedded": count}
 
 # ── Deepgram key endpoint ────────────────────────────────────────────────────
 

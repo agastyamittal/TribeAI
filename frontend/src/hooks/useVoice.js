@@ -24,7 +24,7 @@ export function useVoice() {
     }
   }, [])
 
-  const startRecording = useCallback(async (onUtteranceEnd) => {
+  const startRecording = useCallback(async (onUtteranceEnd, language = 'en') => {
     onUtteranceEndRef.current = onUtteranceEnd
     accumulatedRef.current = ''
     setTranscript('')
@@ -50,7 +50,7 @@ export function useVoice() {
     streamRef.current = stream
 
     const socket = new WebSocket(
-      `wss://api.deepgram.com/v1/listen?encoding=linear16&sample_rate=16000&channels=1&endpointing=600&interim_results=true&utterance_end_ms=1500&punctuate=true`,
+      `wss://api.deepgram.com/v1/listen?encoding=linear16&sample_rate=16000&channels=1&endpointing=600&interim_results=true&utterance_end_ms=1500&punctuate=true&language=${language}`,
       ['token', apiKey]
     )
     socketRef.current = socket
