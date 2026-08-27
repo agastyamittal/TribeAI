@@ -8,6 +8,7 @@ import anthropic
 import chromadb
 from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
 from dotenv import load_dotenv
+from sentence_transformers import CrossEncoder
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -93,6 +94,8 @@ knowledge_collection = chroma_client.get_or_create_collection(
     metadata={"hnsw:space": "cosine"},
     embedding_function=embedding_fn,
 )
+
+reranker = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
 
 load_state()
 
@@ -439,9 +442,10 @@ def ask_digital_expert(data: DigitalExpertQuery):
 
     client = get_claude_client()
 
+    candidate_count = min(15, knowledge_collection.count())
     results = knowledge_collection.query(
         query_texts=[data.question],
-        n_results=min(5, knowledge_collection.count()),
+        n_results=candidate_count,
     )
 
     if not results["documents"] or not results["documents"][0]:
@@ -450,9 +454,21 @@ def ask_digital_expert(data: DigitalExpertQuery):
             "sources": [],
         }
 
+    docs = results["documents"][0]
+    metas = results["metadatas"][0]
+
+    pairs = [[data.question, doc] for doc in docs]
+    scores = reranker.predict(pairs)
+
+    ranked = sorted(
+        zip(scores, docs, metas),
+        key=lambda x: x[0],
+        reverse=True,
+    )[:5]
+
     context_entries = []
     sources = []
-    for i, (doc, meta) in enumerate(zip(results["documents"][0], results["metadatas"][0])):
+    for i, (score, doc, meta) in enumerate(ranked):
         context_entries.append(f"Entry {i+1} (from {meta['expert_name']}, {meta['type']}, {meta['machine']}):\n{doc}")
         sources.append({
             "expert_name": meta["expert_name"],
