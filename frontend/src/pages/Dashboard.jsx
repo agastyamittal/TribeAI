@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { UserPlus, Clock, BookOpen, ChevronRight, Zap, AlertTriangle, Loader2, Shield, Wrench, Cpu, Gauge, Eye, Search } from 'lucide-react'
+import { UserPlus, Clock, BookOpen, ChevronRight, Zap, AlertTriangle, Loader2, Shield, Wrench, Cpu, Gauge, Eye, Search, Users, MessageSquare, CheckCircle } from 'lucide-react'
 
 const SEVERITY_STYLE = {
   high: 'bg-red-500/20 text-red-400 border-red-500/30',
@@ -31,11 +31,13 @@ export default function Dashboard() {
   const [gaps, setGaps] = useState([])
   const [analyzing, setAnalyzing] = useState(false)
   const [gapError, setGapError] = useState('')
+  const [validatedCount, setValidatedCount] = useState(0)
   const navigate = useNavigate()
 
   useEffect(() => {
     fetch('/api/experts').then(r => r.json()).then(setExperts)
     fetch('/api/gaps').then(r => r.json()).then(setGaps)
+    fetch('/api/knowledge?status=validated').then(r => r.json()).then(data => setValidatedCount(data.length))
   }, [])
 
   async function analyzeGaps() {
@@ -106,6 +108,36 @@ export default function Dashboard() {
           <UserPlus size={18} />
           Enroll Expert
         </button>
+      </div>
+
+      <div className="grid grid-cols-3 gap-4 mb-8">
+        <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-4 flex items-center gap-4">
+          <div className="w-10 h-10 bg-amber-500/20 rounded-lg flex items-center justify-center">
+            <Users size={20} className="text-amber-400" />
+          </div>
+          <div>
+            <p className="text-2xl font-bold text-white">{experts.length}</p>
+            <p className="text-xs text-slate-400">Experts Enrolled</p>
+          </div>
+        </div>
+        <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-4 flex items-center gap-4">
+          <div className="w-10 h-10 bg-emerald-500/20 rounded-lg flex items-center justify-center">
+            <MessageSquare size={20} className="text-emerald-400" />
+          </div>
+          <div>
+            <p className="text-2xl font-bold text-white">{experts.reduce((sum, e) => sum + e.sessions_completed, 0)}</p>
+            <p className="text-xs text-slate-400">Sessions Completed</p>
+          </div>
+        </div>
+        <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-4 flex items-center gap-4">
+          <div className="w-10 h-10 bg-blue-500/20 rounded-lg flex items-center justify-center">
+            <CheckCircle size={20} className="text-blue-400" />
+          </div>
+          <div>
+            <p className="text-2xl font-bold text-white">{validatedCount}</p>
+            <p className="text-xs text-slate-400">Validated Entries</p>
+          </div>
+        </div>
       </div>
 
       {showForm && (
